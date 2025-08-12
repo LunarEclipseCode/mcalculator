@@ -13,40 +13,50 @@
 * Author:
 \****************************************************************************/
 
+#include <iomanip>
 #include <string>
+#include <sstream>
 #include "Header Files/CalcEngine.h"
 #include "Header Files/CalcUtils.h"
-#include "NumberFormattingUtils.h"
 
 using namespace std;
 using namespace CalcEngine;
 
 namespace
 {
-// NPrecedenceOfOp
-//
-// returns a virtual number for precedence for the operator. We expect binary operator only, otherwise the lowest number
-// 0 is returned. Higher the number, higher the precedence of the operator.
-int NPrecedenceOfOp(int nopCode)
-{
-    static uint16_t rgbPrec[] = {
-        0, 0, IDC_OR, 0, IDC_XOR, 0,
-        IDC_AND, 1, IDC_NAND, 1, IDC_NOR, 1,
-        IDC_ADD, 2, IDC_SUB, 2,
-        IDC_RSHF, 3, IDC_LSHF, 3, IDC_RSHFL, 3,
-        IDC_MOD, 3, IDC_DIV, 3, IDC_MUL, 3,
-        IDC_PWR, 4, IDC_ROOT, 4, IDC_LOGBASEX, 4};
-
-    for (unsigned int iPrec = 0; iPrec < size(rgbPrec); iPrec += 2)
+    // NPrecedenceOfOp
+    //
+    // returns a virtual number for precedence for the operator. We expect binary operator only, otherwise the lowest number
+    // 0 is returned. Higher the number, higher the precedence of the operator.
+    int NPrecedenceOfOp(int nopCode)
     {
-        if (nopCode == rgbPrec[iPrec])
+        switch (nopCode)
         {
-            return rgbPrec[iPrec + 1];
+        default:
+        case IDC_OR:
+        case IDC_XOR:
+            return 0;
+        case IDC_AND:
+        case IDC_NAND:
+        case IDC_NOR:
+            return 1;
+        case IDC_ADD:
+        case IDC_SUB:
+            return 2;
+        case IDC_LSHF:
+        case IDC_RSHF:
+        case IDC_RSHFL:
+        case IDC_MOD:
+        case IDC_DIV:
+        case IDC_MUL:
+            return 3;
+        case IDC_PWR:
+        case IDC_ROOT:
+        case IDC_LOGBASEY:
+            return 4;
         }
     }
-    return 0;
 }
-} // namespace
 
 // HandleErrorCommand
 //
@@ -83,8 +93,7 @@ void CCalcEngine::ClearDisplay()
 {
     if (nullptr != m_pCalcDisplay)
     {
-        m_pCalcDisplay->SetExpressionDisplay(
-            make_shared<vector<pair<wstring, int>>>(), make_shared<vector<shared_ptr<IExpressionCommand>>>());
+        m_pCalcDisplay->SetExpressionDisplay(make_shared<vector<pair<wstring, int>>>(), make_shared<vector<shared_ptr<IExpressionCommand>>>());
     }
 }
 
@@ -140,18 +149,10 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
     // Toggle Record/Display mode if appropriate.
     if (m_bRecord)
     {
-        if (IsBinOpCode(wParam) ||
-            IsUnaryOpCode(wParam) ||
-            IsOpInRange(wParam, IDC_FE, IDC_MMINUS) ||
-            IsOpInRange(wParam, IDC_OPENP, IDC_CLOSEP) ||
-            IsOpInRange(wParam, IDM_HEX, IDM_BIN) ||
-            IsOpInRange(wParam, IDM_QWORD, IDM_BYTE) ||
-            IsOpInRange(wParam, IDM_DEG, IDM_GRAD) ||
-            IsOpInRange(wParam, IDC_BINEDITSTART, IDC_BINEDITEND) ||
-            (IDC_INV == wParam) ||
-            (IDC_SIGN == wParam && 10 != m_radix) ||
-            (IDC_RAND == wParam) ||
-            (IDC_EULER == wParam))
+        if (IsBinOpCode(wParam) || IsUnaryOpCode(wParam) || IsOpInRange(wParam, IDC_FE, IDC_MMINUS) || IsOpInRange(wParam, IDC_OPENP, IDC_CLOSEP)
+            || IsOpInRange(wParam, IDM_HEX, IDM_BIN) || IsOpInRange(wParam, IDM_QWORD, IDM_BYTE) || IsOpInRange(wParam, IDM_DEG, IDM_GRAD)
+            || IsOpInRange(wParam, IDC_BINEDITSTART, IDC_BINEDITEND) || (IDC_INV == wParam) || (IDC_SIGN == wParam && 10 != m_radix) || (IDC_RAND == wParam)
+            || (IDC_EULER == wParam))
         {
             m_bRecord = false;
             m_currentVal = m_input.ToRational(m_radix, m_precision);
@@ -162,7 +163,15 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
     {
         m_bRecord = true;
         m_input.Clear();
-        CheckAndAddLastBinOpToHistory();
+
+        /*
+         * Account for scenarios where an equation includes any input after closing parenthesis - i.e. "(8)2=16".
+         * This prevents the calculator from ending an equation and adding to history prematurely.
+         */
+        if (m_nLastCom != IDC_CLOSEP)
+        {
+            CheckAndAddLastBinOpToHistory();
+        }
     }
 
     // Interpret digit keys.
@@ -177,13 +186,45 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
             return;
         }
 
-        if (!m_input.TryAddDigit(iValue, m_radix, m_fIntegerMode, m_maxDecimalValueStrings[m_numwidth], m_dwWordBitWidth, m_cIntDigitsSav))
+        if (!m_input.TryAddDigit(iValue, m_radix, m_fIntegerMode, GetMaxDecimalValueString(), m_dwWordBitWidth, m_cIntDigitsSav))
         {
             HandleErrorCommand(wParam);
             HandleMaxDigitsReached();
             return;
         }
 
+        // Check if the last command was a closing parenthesis
+        if (m_nLastCom == IDC_CLOSEP)
+        {
+            // Treat this as an implicit multiplication
+            m_nOpCode = IDC_MUL;
+            m_lastVal = m_currentVal;
+
+            // We need to clear any previous state from last calculation
+            m_holdVal = Rational(0);
+            m_bNoPrevEqu = true;
+
+            // Add the operand to history before adding the implicit multiplication
+            if (!m_HistoryCollector.FOpndAddedToHistory())
+            {
+                m_HistoryCollector.AddOpenBraceToHistory();
+                m_HistoryCollector.AddOpndToHistory(m_numberString, m_currentVal);
+                m_HistoryCollector.AddCloseBraceToHistory();
+            }
+
+            // Add the implicit multiplication to history
+            m_HistoryCollector.AddBinOpToHistory(m_nOpCode, m_fIntegerMode);
+
+            m_bChangeOp = true;
+            m_nPrevOpCode = 0;
+
+            // Clear any pending operations in the precedence stack
+            while (m_precedenceOpCount > 0)
+            {
+                m_precedenceOpCount--;
+                m_nPrecOp[m_precedenceOpCount] = 0;
+            }
+        }
         DisplayNum();
 
         return;
@@ -265,6 +306,12 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
                 if (!m_bError)
                 {
                     DisplayNum();
+                    if (!m_fPrecedence)
+                    {
+                        wstring groupedString = GroupDigitsPerRadix(m_numberString, m_radix);
+                        m_HistoryCollector.CompleteEquation(groupedString);
+                        m_HistoryCollector.AddOpndToHistory(m_numberString, m_currentVal);
+                    }
                 }
 
                 if ((m_precedenceOpCount != 0) && (m_nPrecOp[m_precedenceOpCount - 1]))
@@ -323,7 +370,8 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
             m_HistoryCollector.AddUnaryOpToHistory((int)wParam, m_bInv, m_angletype);
         }
 
-        if ((wParam == IDC_SIN) || (wParam == IDC_COS) || (wParam == IDC_TAN) || (wParam == IDC_SINH) || (wParam == IDC_COSH) || (wParam == IDC_TANH) || (wParam == IDC_SEC) || (wParam == IDC_CSC) || (wParam == IDC_COT) || (wParam == IDC_SECH) || (wParam == IDC_CSCH) || (wParam == IDC_COTH))
+        if ((wParam == IDC_SIN) || (wParam == IDC_COS) || (wParam == IDC_TAN) || (wParam == IDC_SINH) || (wParam == IDC_COSH) || (wParam == IDC_TANH)
+            || (wParam == IDC_SEC) || (wParam == IDC_CSC) || (wParam == IDC_COT) || (wParam == IDC_SECH) || (wParam == IDC_CSCH) || (wParam == IDC_COTH))
         {
             if (IsCurrentTooBigForTrig())
             {
@@ -350,13 +398,10 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
         /* reset the m_bInv flag and indicators if it is set
         and have been used */
 
-        if (m_bInv &&
-            ((wParam == IDC_CHOP) || (wParam == IDC_SIN) || (wParam == IDC_COS) ||
-             (wParam == IDC_TAN) || (wParam == IDC_LN) || (wParam == IDC_DMS) ||
-             (wParam == IDC_DEGREES) || (wParam == IDC_SINH) || (wParam == IDC_COSH) ||
-             (wParam == IDC_TANH) || (wParam == IDC_SEC) || (wParam == IDC_CSC) ||
-             (wParam == IDC_COT) || (wParam == IDC_SECH) || (wParam == IDC_CSCH) ||
-             (wParam == IDC_COTH)))
+        if (m_bInv
+            && ((wParam == IDC_CHOP) || (wParam == IDC_SIN) || (wParam == IDC_COS) || (wParam == IDC_TAN) || (wParam == IDC_LN) || (wParam == IDC_DMS)
+                || (wParam == IDC_DEGREES) || (wParam == IDC_SINH) || (wParam == IDC_COSH) || (wParam == IDC_TANH) || (wParam == IDC_SEC) || (wParam == IDC_CSC)
+                || (wParam == IDC_COT) || (wParam == IDC_SECH) || (wParam == IDC_CSCH) || (wParam == IDC_COTH)))
         {
             m_bInv = false;
         }
@@ -499,11 +544,13 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
         {
             wstring groupedString = GroupDigitsPerRadix(m_numberString, m_radix);
             m_HistoryCollector.CompleteEquation(groupedString);
+
+            m_lastVal = m_currentVal;
+            m_nPrevOpCode = 0; 
+            m_precedenceOpCount = 0;
         }
 
         m_bChangeOp = false;
-        m_nPrevOpCode = 0;
-
         break;
 
     case IDC_OPENP:
@@ -513,7 +560,8 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
         // -OR- the paren holding array is empty and we try to remove a
         //      paren
         // -OR- the precedence holding array is full
-        if ((m_openParenCount >= MAXPRECDEPTH && (wParam == IDC_OPENP)) || (!m_openParenCount && (wParam != IDC_OPENP)) || ((m_precedenceOpCount >= MAXPRECDEPTH && m_nPrecOp[m_precedenceOpCount - 1] != 0)))
+        if ((m_openParenCount >= MAXPRECDEPTH && (wParam == IDC_OPENP)) || (!m_openParenCount && (wParam != IDC_OPENP))
+            || ((m_precedenceOpCount >= MAXPRECDEPTH && m_nPrecOp[m_precedenceOpCount - 1] != 0)))
         {
             if (!m_openParenCount && (wParam != IDC_OPENP))
             {
@@ -526,6 +574,12 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
 
         if (wParam == IDC_OPENP)
         {
+            // if there's an omitted multiplication sign
+            if (IsDigitOpCode(m_nLastCom) || IsUnaryOpCode(m_nLastCom) || m_nLastCom == IDC_PNT || m_nLastCom == IDC_CLOSEP)
+            {
+                ProcessCommand(IDC_MUL);
+            }
+
             CheckAndAddLastBinOpToHistory();
             m_HistoryCollector.AddOpenBraceToHistory();
 
@@ -601,7 +655,7 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
         // Set the "(=xx" indicator.
         if (nullptr != m_pCalcDisplay)
         {
-            m_pCalcDisplay->SetParenthesisNumber(m_openParenCount >= 0 ? static_cast<unsigned int>(m_openParenCount) : 0);
+            m_pCalcDisplay->SetParenthesisNumber(static_cast<unsigned int>(m_openParenCount));
         }
 
         if (!m_bError)
@@ -617,7 +671,7 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
     case IDM_OCT:
     case IDM_BIN:
     {
-        SetRadixTypeAndNumWidth((RADIX_TYPE)(wParam - IDM_HEX), (NUM_WIDTH)-1);
+        SetRadixTypeAndNumWidth((RadixType)(wParam - IDM_HEX), (NUM_WIDTH)-1);
         m_HistoryCollector.UpdateHistoryExpression(m_radix, m_precision);
         break;
     }
@@ -633,20 +687,20 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
         }
 
         // Compat. mode BaseX: Qword, Dword, Word, Byte
-        SetRadixTypeAndNumWidth((RADIX_TYPE)-1, (NUM_WIDTH)(wParam - IDM_QWORD));
+        SetRadixTypeAndNumWidth((RadixType)-1, (NUM_WIDTH)(wParam - IDM_QWORD));
         break;
 
     case IDM_DEG:
     case IDM_RAD:
     case IDM_GRAD:
-        m_angletype = static_cast<ANGLE_TYPE>(wParam - IDM_DEG);
+        m_angletype = static_cast<AngleType>(wParam - IDM_DEG);
         break;
 
     case IDC_SIGN:
     {
         if (m_bRecord)
         {
-            if (m_input.TryToggleSign(m_fIntegerMode, m_maxDecimalValueStrings[m_numwidth]))
+            if (m_input.TryToggleSign(m_fIntegerMode, GetMaxDecimalValueString()))
             {
                 DisplayNum();
             }
@@ -717,7 +771,7 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
         if (!m_fIntegerMode)
         {
             CheckAndAddLastBinOpToHistory(); // pi is like entering the number
-            m_currentVal = Rational{(m_bInv ? two_pi : pi)};
+            m_currentVal = Rational{ (m_bInv ? two_pi : pi) };
 
             DisplayNum();
             m_bInv = false;
@@ -736,11 +790,11 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
             auto rat = StringToRat(false, str.str(), false, L"", m_radix, m_precision);
             if (rat != nullptr)
             {
-                m_currentVal = Rational{rat};
+                m_currentVal = Rational{ rat };
             }
             else
             {
-                m_currentVal = Rational{0};
+                m_currentVal = Rational{ 0 };
             }
             destroyrat(rat);
 
@@ -754,7 +808,7 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
         if (!m_fIntegerMode)
         {
             CheckAndAddLastBinOpToHistory(); // e is like entering the number
-            m_currentVal = Rational{rat_exp};
+            m_currentVal = Rational{ rat_exp };
 
             DisplayNum();
             m_bInv = false;
@@ -764,7 +818,7 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
         break;
     case IDC_FE:
         // Toggle exponential notation display.
-        m_nFE = NUMOBJ_FMT(!(int)m_nFE);
+        m_nFE = m_nFE == NumberFormat::Float ? NumberFormat::Scientific : NumberFormat::Float;
         DisplayNum();
         break;
 
@@ -778,6 +832,40 @@ void CCalcEngine::ProcessCommandWorker(OpCode wParam)
         break;
 
     case IDC_PNT:
+
+        // Check if the last command was a closing parenthesis
+        if (m_nLastCom == IDC_CLOSEP)
+        {
+            // Treat this as an implicit multiplication
+            m_nOpCode = IDC_MUL;
+            m_lastVal = m_currentVal;
+
+            // We need to clear any previous state from last calculation
+            m_holdVal = Rational(0);
+            m_bNoPrevEqu = true;
+
+            // Add the operand to history before adding the implicit multiplication
+            if (!m_HistoryCollector.FOpndAddedToHistory())
+            {
+                m_HistoryCollector.AddOpenBraceToHistory();
+                m_HistoryCollector.AddOpndToHistory(m_numberString, m_currentVal);
+                m_HistoryCollector.AddCloseBraceToHistory();
+            }
+
+            // Add the implicit multiplication to history
+            m_HistoryCollector.AddBinOpToHistory(m_nOpCode, m_fIntegerMode);
+
+            m_bChangeOp = true;
+            m_nPrevOpCode = 0;
+
+            // Clear any pending operations in the precedence stack
+            while (m_precedenceOpCount > 0)
+            {
+                m_precedenceOpCount--;
+                m_nPrecOp[m_precedenceOpCount] = 0;
+            }
+        }
+
         if (m_bRecord && !m_fIntegerMode && m_input.TryAddDecimalPt())
         {
             DisplayNum();
@@ -878,7 +966,7 @@ void CCalcEngine::CheckAndAddLastBinOpToHistory(bool addToHistory)
 
 // change the display area from a static text to an editbox, which has the focus can make
 // Magnifier (Accessibility tool) work
-void CCalcEngine::SetPrimaryDisplay(const wstring &szText, bool isError)
+void CCalcEngine::SetPrimaryDisplay(const wstring& szText, bool isError)
 {
     if (m_pCalcDisplay != nullptr)
     {
@@ -917,57 +1005,56 @@ struct FunctionNameElement
 };
 
 // Table for each unary operator
-static const std::unordered_map<int, FunctionNameElement> operatorStringTable =
-    {
-        {IDC_CHOP, {L"", SIDS_FRAC}},
+static const std::unordered_map<int, FunctionNameElement> operatorStringTable = {
+    { IDC_CHOP, { L"", SIDS_FRAC } },
 
-        {IDC_SIN, {SIDS_SIND, SIDS_ASIND, SIDS_SINR, SIDS_ASINR, SIDS_SING, SIDS_ASING}},
-        {IDC_COS, {SIDS_COSD, SIDS_ACOSD, SIDS_COSR, SIDS_ACOSR, SIDS_COSG, SIDS_ACOSG}},
-        {IDC_TAN, {SIDS_TAND, SIDS_ATAND, SIDS_TANR, SIDS_ATANR, SIDS_TANG, SIDS_ATANG}},
+    { IDC_SIN, { SIDS_SIND, SIDS_ASIND, SIDS_SINR, SIDS_ASINR, SIDS_SING, SIDS_ASING } },
+    { IDC_COS, { SIDS_COSD, SIDS_ACOSD, SIDS_COSR, SIDS_ACOSR, SIDS_COSG, SIDS_ACOSG } },
+    { IDC_TAN, { SIDS_TAND, SIDS_ATAND, SIDS_TANR, SIDS_ATANR, SIDS_TANG, SIDS_ATANG } },
 
-        {IDC_SINH, {L"", SIDS_ASINH}},
-        {IDC_COSH, {L"", SIDS_ACOSH}},
-        {IDC_TANH, {L"", SIDS_ATANH}},
+    { IDC_SINH, { L"", SIDS_ASINH } },
+    { IDC_COSH, { L"", SIDS_ACOSH } },
+    { IDC_TANH, { L"", SIDS_ATANH } },
 
-        {IDC_SEC, {SIDS_SECD, SIDS_ASECD, SIDS_SECR, SIDS_ASECR, SIDS_SECG, SIDS_ASECG}},
-        {IDC_CSC, {SIDS_CSCD, SIDS_ACSCD, SIDS_CSCR, SIDS_ACSCR, SIDS_CSCG, SIDS_ACSCG}},
-        {IDC_COT, {SIDS_COTD, SIDS_ACOTD, SIDS_COTR, SIDS_ACOTR, SIDS_COTG, SIDS_ACOTG}},
+    { IDC_SEC, { SIDS_SECD, SIDS_ASECD, SIDS_SECR, SIDS_ASECR, SIDS_SECG, SIDS_ASECG } },
+    { IDC_CSC, { SIDS_CSCD, SIDS_ACSCD, SIDS_CSCR, SIDS_ACSCR, SIDS_CSCG, SIDS_ACSCG } },
+    { IDC_COT, { SIDS_COTD, SIDS_ACOTD, SIDS_COTR, SIDS_ACOTR, SIDS_COTG, SIDS_ACOTG } },
 
-        {IDC_SECH, {SIDS_SECH, SIDS_ASECH}},
-        {IDC_CSCH, {SIDS_CSCH, SIDS_ACSCH}},
-        {IDC_COTH, {SIDS_COTH, SIDS_ACOTH}},
+    { IDC_SECH, { SIDS_SECH, SIDS_ASECH } },
+    { IDC_CSCH, { SIDS_CSCH, SIDS_ACSCH } },
+    { IDC_COTH, { SIDS_COTH, SIDS_ACOTH } },
 
-        {IDC_LN, {L"", SIDS_POWE}},
-        {IDC_SQR, {SIDS_SQR}},
-        {IDC_CUB, {SIDS_CUBE}},
-        {IDC_FAC, {SIDS_FACT}},
-        {IDC_REC, {SIDS_RECIPROC}},
-        {IDC_DMS, {L"", SIDS_DEGREES}},
-        {IDC_SIGN, {SIDS_NEGATE}},
-        {IDC_DEGREES, {SIDS_DEGREES}},
-        {IDC_POW2, {SIDS_TWOPOWX}},
-        {IDC_LOGBASEX, {SIDS_LOGBASEX}},
-        {IDC_ABS, {SIDS_ABS}},
-        {IDC_CEIL, {SIDS_CEIL}},
-        {IDC_FLOOR, {SIDS_FLOOR}},
-        {IDC_NAND, {SIDS_NAND}},
-        {IDC_NOR, {SIDS_NOR}},
-        {IDC_RSHFL, {SIDS_RSH}},
-        {IDC_RORC, {SIDS_ROR}},
-        {IDC_ROLC, {SIDS_ROL}},
-        {IDC_CUBEROOT, {SIDS_CUBEROOT}},
-        {IDC_MOD, {SIDS_MOD, L"", L"", L"", L"", L"", SIDS_PROGRAMMER_MOD}},
+    { IDC_LN, { L"", SIDS_POWE } },
+    { IDC_SQR, { SIDS_SQR } },
+    { IDC_CUB, { SIDS_CUBE } },
+    { IDC_FAC, { SIDS_FACT } },
+    { IDC_REC, { SIDS_RECIPROC } },
+    { IDC_DMS, { L"", SIDS_DEGREES } },
+    { IDC_SIGN, { SIDS_NEGATE } },
+    { IDC_DEGREES, { SIDS_DEGREES } },
+    { IDC_POW2, { SIDS_TWOPOWX } },
+    { IDC_LOGBASEY, { SIDS_LOGBASEY } },
+    { IDC_ABS, { SIDS_ABS } },
+    { IDC_CEIL, { SIDS_CEIL } },
+    { IDC_FLOOR, { SIDS_FLOOR } },
+    { IDC_NAND, { SIDS_NAND } },
+    { IDC_NOR, { SIDS_NOR } },
+    { IDC_RSHFL, { SIDS_RSH } },
+    { IDC_RORC, { SIDS_ROR } },
+    { IDC_ROLC, { SIDS_ROL } },
+    { IDC_CUBEROOT, { SIDS_CUBEROOT } },
+    { IDC_MOD, { SIDS_MOD, L"", L"", L"", L"", L"", SIDS_PROGRAMMER_MOD } },
 };
 
-wstring_view CCalcEngine::OpCodeToUnaryString(int nOpCode, bool fInv, ANGLE_TYPE angletype)
+wstring_view CCalcEngine::OpCodeToUnaryString(int nOpCode, bool fInv, AngleType angletype)
 {
     // Try to lookup the ID in the UFNE table
     wstring ids = L"";
 
     if (auto pair = operatorStringTable.find(nOpCode); pair != operatorStringTable.end())
     {
-        const FunctionNameElement &element = pair->second;
-        if (!element.hasAngleStrings || ANGLE_DEG == angletype)
+        const FunctionNameElement& element = pair->second;
+        if (!element.hasAngleStrings || AngleType::Degrees == angletype)
         {
             if (fInv)
             {
@@ -979,7 +1066,7 @@ wstring_view CCalcEngine::OpCodeToUnaryString(int nOpCode, bool fInv, ANGLE_TYPE
                 ids = element.degreeString;
             }
         }
-        else if (ANGLE_RAD == angletype)
+        else if (AngleType::Radians == angletype)
         {
             if (fInv)
             {
@@ -990,7 +1077,7 @@ wstring_view CCalcEngine::OpCodeToUnaryString(int nOpCode, bool fInv, ANGLE_TYPE
                 ids = element.radString;
             }
         }
-        else if (ANGLE_GRAD == angletype)
+        else if (AngleType::Gradians == angletype)
         {
             if (fInv)
             {
@@ -1043,7 +1130,7 @@ bool CCalcEngine::IsCurrentTooBigForTrig()
     return m_currentVal >= m_maxTrigonometricNum;
 }
 
-int CCalcEngine::GetCurrentRadix()
+uint32_t CCalcEngine::GetCurrentRadix()
 {
     return m_radix;
 }
@@ -1071,7 +1158,7 @@ wstring CCalcEngine::GetCurrentResultForRadix(uint32_t radix, int32_t precision,
     }
 }
 
-wstring CCalcEngine::GetStringForDisplay(Rational const &rat, uint32_t radix)
+wstring CCalcEngine::GetStringForDisplay(Rational const& rat, uint32_t radix)
 {
     wstring result{};
     // Check for standard\scientific mode
@@ -1092,7 +1179,7 @@ wstring CCalcEngine::GetStringForDisplay(Rational const &rat, uint32_t radix)
             if ((radix == 10) && fMsb)
             {
                 // If high bit is set, then get the decimal number in negative 2's complement form.
-                tempRat = -((tempRat ^ m_chopNumbers[m_numwidth]) + 1);
+                tempRat = -((tempRat ^ GetChopNumber()) + 1);
             }
 
             result = tempRat.ToString(radix, m_nFE, m_precision);

@@ -15,9 +15,8 @@ namespace CalculationManager
 
     enum class CalculatorMode
     {
-        StandardMode,
-        ScientificMode,
-        ProgrammerMode,
+        Standard = 0,
+        Scientific,
     };
 
     enum class CalculatorPrecision
@@ -45,6 +44,7 @@ namespace CalculationManager
     class CalculatorManager final : public ICalcDisplay
     {
     private:
+        static const unsigned int m_maximumMemorySize = 100;
         ICalcDisplay* const m_displayCallback;
         CCalcEngine* m_currentCalculatorEngine;
         std::unique_ptr<CCalcEngine> m_scientificCalculatorEngine;
@@ -55,21 +55,8 @@ namespace CalculationManager
 
         std::vector<CalcEngine::Rational> m_memorizedNumbers;
         CalcEngine::Rational m_persistedPrimaryValue;
-
         bool m_isExponentialFormat;
-
-        static const unsigned int m_maximumMemorySize = 100;
-
-        // For persistence
-        std::vector<unsigned char> m_savedCommands;
-        std::vector<long> m_savedPrimaryValue;
-        std::vector<long> m_currentSerializedMemory;
         Command m_currentDegreeMode;
-        Command m_savedDegreeMode;
-        unsigned char MapCommandForSerialize(Command command);
-        unsigned int MapCommandForDeSerialize(unsigned char command);
-
-        void SaveMemoryCommand(_In_ MemoryCommand command, _In_ unsigned int indexOfMemory);
 
         void MemorizedNumberSelect(_In_ unsigned int);
         void MemorizedNumberChanged(_In_ unsigned int);
@@ -113,19 +100,16 @@ namespace CalculationManager
 
         bool IsEngineRecording();
         bool IsInputEmpty();
-        const std::vector<unsigned char>& GetSavedCommands() const
-        {
-            return m_savedCommands;
-        }
-        void SetRadix(RADIX_TYPE iRadixType);
+        void SetRadix(RadixType iRadixType);
         void SetMemorizedNumbersString();
         std::wstring GetResultForRadix(uint32_t radix, int32_t precision, bool groupDigitsPerRadix);
         void SetPrecision(int32_t precision);
         void UpdateMaxIntDigits();
         wchar_t DecimalSeparator();
 
-        std::vector<std::shared_ptr<HISTORYITEM>> const& GetHistoryItems();
-        std::vector<std::shared_ptr<HISTORYITEM>> const& GetHistoryItems(_In_ CalculationManager::CALCULATOR_MODE mode);
+        std::vector<std::shared_ptr<HISTORYITEM>> const& GetHistoryItems() const;
+        std::vector<std::shared_ptr<HISTORYITEM>> const& GetHistoryItems(_In_ CalculatorMode mode) const;
+        void SetHistoryItems(_In_ std::vector<std::shared_ptr<HISTORYITEM>> const& historyItems);
         std::shared_ptr<HISTORYITEM> const& GetHistoryItem(_In_ unsigned int uIdx);
         bool RemoveHistoryItem(_In_ unsigned int uIdx);
         void ClearHistory();
@@ -134,7 +118,7 @@ namespace CalculationManager
             return m_pHistory->MaxHistorySize();
         }
         CalculationManager::Command GetCurrentDegreeMode();
-        void SetHistory(_In_ CALCULATOR_MODE eMode, _In_ std::vector<std::shared_ptr<HISTORYITEM>> const& history);
         void SetInHistoryItemLoadMode(_In_ bool isHistoryItemLoadMode);
+        std::vector<std::shared_ptr<IExpressionCommand>> GetDisplayCommandsSnapshot() const;
     };
 }

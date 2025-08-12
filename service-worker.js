@@ -2,13 +2,13 @@ var CACHE = 'cache-and-update';
 const filesToCache = [
   '/',
   'index.html',
-  'assets/CalcMDL2.ttf',
+  'assets/CalculatorIcons.ttf',
   'js/engine.js',
   'js/engine.wasm',
   'js/script.js',
-  'fonts.css',
-  'splash.css',
-  'standard.css',
+  'css/fonts.css',
+  'css/splash.css',
+  'css/standard.css',
 ];
 
 self.addEventListener('install', function (evt) {

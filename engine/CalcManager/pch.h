@@ -11,9 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
-/*
-#include <intsafe.h> > just commenting out for now, vl see later if any replacements are needed
-*/
+// #include <intsafe.h>
 #include <list>
 #include <future>
 #include <regex>
@@ -21,12 +19,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-/*
-#include <winerror.h>
-*/
-#include <winerror_cross_platform.h> // in replacement for above, weird to see not include by default
+// #include <winerror.h>
+#include <winerror_cross_platform.h>
 #include <sal_cross_platform.h>
-
 #include <iostream>
 #include <cmath>
 #include <random>

@@ -116,15 +116,6 @@ namespace UnitConversionManager
         }
     };
 
-    class CategoryHash
-    {
-    public:
-        size_t operator()(const Category& x) const
-        {
-            return x.id;
-        }
-    };
-
     struct SuggestedValueIntermediate
     {
         double magnitude;
@@ -165,14 +156,12 @@ namespace UnitConversionManager
         std::wstring targetCurrencyCode;
     };
 
-    typedef std::tuple<std::vector<UnitConversionManager::Unit>, UnitConversionManager::Unit, UnitConversionManager::Unit> CategorySelectionInitializer;
-    typedef std::unordered_map<
+    using CategorySelectionInitializer = std::tuple<std::vector<UnitConversionManager::Unit>, UnitConversionManager::Unit, UnitConversionManager::Unit>;
+    using UnitToUnitToConversionDataMap = std::unordered_map<
         UnitConversionManager::Unit,
         std::unordered_map<UnitConversionManager::Unit, UnitConversionManager::ConversionData, UnitConversionManager::UnitHash>,
-        UnitConversionManager::UnitHash>
-        UnitToUnitToConversionDataMap;
-    typedef std::unordered_map<UnitConversionManager::Category, std::vector<UnitConversionManager::Unit>, UnitConversionManager::CategoryHash>
-        CategoryToUnitVectorMap;
+        UnitConversionManager::UnitHash>;
+    using CategoryToUnitVectorMap = std::unordered_map<int, std::vector<UnitConversionManager::Unit>>;
 
     class IViewModelCurrencyCallback
     {
@@ -190,8 +179,8 @@ namespace UnitConversionManager
     public:
         virtual ~IConverterDataLoader(){};
         virtual void LoadData() = 0; // prepare data if necessary before calling other functions
-        virtual std::vector<Category> LoadOrderedCategories() = 0;
-        virtual std::vector<Unit> LoadOrderedUnits(const Category& c) = 0;
+        virtual std::vector<Category> GetOrderedCategories() = 0;
+        virtual std::vector<Unit> GetOrderedUnits(const Category& c) = 0;
         virtual std::unordered_map<Unit, ConversionData, UnitHash> LoadOrderedRatios(const Unit& u) = 0;
         virtual bool SupportsCategory(const Category& target) = 0;
     };
@@ -232,6 +221,7 @@ namespace UnitConversionManager
         virtual Category GetCurrentCategory() = 0;
         virtual void SetCurrentUnitTypes(const Unit& fromType, const Unit& toType) = 0;
         virtual void SwitchActive(const std::wstring& newValue) = 0;
+        virtual bool IsSwitchedActive() const = 0;
         virtual std::wstring SaveUserPreferences() = 0;
         virtual void RestoreUserPreferences(_In_ std::wstring_view userPreferences) = 0;
         virtual void SendCommand(Command command) = 0;
@@ -255,6 +245,7 @@ namespace UnitConversionManager
         Category GetCurrentCategory() override;
         void SetCurrentUnitTypes(const Unit& fromType, const Unit& toType) override;
         void SwitchActive(const std::wstring& newValue) override;
+        bool IsSwitchedActive() const override;
         std::wstring SaveUserPreferences() override;
         void RestoreUserPreferences(std::wstring_view userPreference) override;
         void SendCommand(Command command) override;

@@ -3,10 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="splash.css" />
-    <link rel="manifest" href="manifest.json" />
-    <link rel="icon" href="favicon.ico" />
-    <title>calc</title>
+    <link rel="stylesheet" href="css/splash.css" />
+    <link rel="icon" href="assets/calculator.png" />
+    <title>Calculator</title>
   </head>
 
   <body>
@@ -37,9 +36,6 @@
             <button class="menu">&#xE700;</button>
             <div class="title">
               <div>Standard</div>
-            </div>
-            <div class="pip">
-              <button>⇲</button>
             </div>
             <div style="margin: auto;" class="space"></div>
             <div class="history">
@@ -154,12 +150,12 @@
         </div>
       </div>
     </div>
-    <link rel="stylesheet" href="fonts.css" />
-    <link rel="stylesheet" href="standard.css" />
+    <link rel="stylesheet" href="css/fonts.css" />
+    <link rel="stylesheet" href="css/standard.css" />
     <script>
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker
-          .register("/service-worker.js")
+          .register("service-worker.js")
           .then(function (registration) {
             console.log(
               "Registration successful, scope is:",

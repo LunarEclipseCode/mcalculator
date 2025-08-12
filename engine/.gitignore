@@ -12,3 +12,6 @@ engine
 CalcManager/libCalcManager.a
 CalcModel/libCalcModel.a
 libEngine.a
+.ninja_deps
+.ninja_log
+build.ninja

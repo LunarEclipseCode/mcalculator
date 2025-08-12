@@ -26,10 +26,9 @@ static constexpr wstring_view DEFAULT_NUMBER_STR = L"0";
 
 unordered_map<wstring_view, wstring> CCalcEngine::s_engineStrings;
 
-void CCalcEngine::LoadEngineStrings(CalculationManager::IResourceProvider &resourceProvider)
+void CCalcEngine::LoadEngineStrings(CalculationManager::IResourceProvider& resourceProvider)
 {
-    s_engineStrings.reserve(200); //fixes gcc arithmetic exception bug
-    for (const auto &sid : g_sids)
+    for (const auto& sid : g_sids)
     {
         auto locString = resourceProvider.GetCEngineString(sid);
         if (!locString.empty())
@@ -44,7 +43,7 @@ void CCalcEngine::LoadEngineStrings(CalculationManager::IResourceProvider &resou
 // InitialOneTimeOnlyNumberSetup
 //
 //////////////////////////////////////////////////
-void CCalcEngine::InitialOneTimeOnlySetup(CalculationManager::IResourceProvider &resourceProvider)
+void CCalcEngine::InitialOneTimeOnlySetup(CalculationManager::IResourceProvider& resourceProvider)
 {
     LoadEngineStrings(resourceProvider);
 
@@ -61,18 +60,52 @@ void CCalcEngine::InitialOneTimeOnlySetup(CalculationManager::IResourceProvider 
 CCalcEngine::CCalcEngine(
     bool fPrecedence,
     bool fIntegerMode,
-    CalculationManager::IResourceProvider *const pResourceProvider,
-    __in_opt ICalcDisplay *pCalcDisplay,
+    CalculationManager::IResourceProvider* const pResourceProvider,
+    __in_opt ICalcDisplay* pCalcDisplay,
     __in_opt shared_ptr<IHistoryDisplay> pHistoryDisplay)
-    : m_fPrecedence(fPrecedence), m_fIntegerMode(fIntegerMode), m_pCalcDisplay(pCalcDisplay), m_resourceProvider(pResourceProvider), m_nOpCode(0), m_nPrevOpCode(0), m_bChangeOp(false), m_bRecord(false), m_bSetCalcState(false), m_input(DEFAULT_DEC_SEPARATOR), m_nFE(FMT_FLOAT), m_memoryValue{make_unique<Rational>()}, m_holdVal{}, m_currentVal{}, m_lastVal{}, m_parenVals{}, m_precedenceVals{}, m_bError(false), m_bInv(false), m_bNoPrevEqu(true), m_radix(DEFAULT_RADIX), m_precision(DEFAULT_PRECISION), m_cIntDigitsSav(DEFAULT_MAX_DIGITS), m_decGrouping(), m_numberString(DEFAULT_NUMBER_STR), m_nTempCom(0), m_openParenCount(0), m_nOp(), m_nPrecOp(), m_precedenceOpCount(0), m_nLastCom(0), m_angletype(ANGLE_DEG), m_numwidth(QWORD_WIDTH), m_HistoryCollector(pCalcDisplay, pHistoryDisplay, DEFAULT_DEC_SEPARATOR), m_groupSeparator(DEFAULT_GRP_SEPARATOR)
+    : m_fPrecedence(fPrecedence)
+    , m_fIntegerMode(fIntegerMode)
+    , m_pCalcDisplay(pCalcDisplay)
+    , m_resourceProvider(pResourceProvider)
+    , m_nOpCode(0)
+    , m_nPrevOpCode(0)
+    , m_bChangeOp(false)
+    , m_bRecord(false)
+    , m_bSetCalcState(false)
+    , m_input(DEFAULT_DEC_SEPARATOR)
+    , m_nFE(NumberFormat::Float)
+    , m_memoryValue{ make_unique<Rational>() }
+    , m_holdVal{}
+    , m_currentVal{}
+    , m_lastVal{}
+    , m_parenVals{}
+    , m_precedenceVals{}
+    , m_bError(false)
+    , m_bInv(false)
+    , m_bNoPrevEqu(true)
+    , m_radix(DEFAULT_RADIX)
+    , m_precision(DEFAULT_PRECISION)
+    , m_cIntDigitsSav(DEFAULT_MAX_DIGITS)
+    , m_decGrouping()
+    , m_numberString(DEFAULT_NUMBER_STR)
+    , m_nTempCom(0)
+    , m_openParenCount(0)
+    , m_nOp()
+    , m_nPrecOp()
+    , m_precedenceOpCount(0)
+    , m_nLastCom(0)
+    , m_angletype(AngleType::Degrees)
+    , m_numwidth(NUM_WIDTH::QWORD_WIDTH)
+    , m_HistoryCollector(pCalcDisplay, pHistoryDisplay, DEFAULT_DEC_SEPARATOR)
+    , m_groupSeparator(DEFAULT_GRP_SEPARATOR)
 {
     InitChopNumbers();
 
-    m_dwWordBitWidth = DwWordBitWidthFromeNumWidth(m_numwidth);
+    m_dwWordBitWidth = DwWordBitWidthFromNumWidth(m_numwidth);
 
     m_maxTrigonometricNum = RationalMath::Pow(10, 100);
 
-    SetRadixTypeAndNumWidth(DEC_RADIX, m_numwidth);
+    SetRadixTypeAndNumWidth(RadixType::Decimal, m_numwidth);
     SettingsChanged();
     DisplayNum();
 }
@@ -82,10 +115,10 @@ void CCalcEngine::InitChopNumbers()
     // these rat numbers are set only once and then never change regardless of
     // base or precision changes
     assert(m_chopNumbers.size() >= 4);
-    m_chopNumbers[0] = Rational{rat_qword};
-    m_chopNumbers[1] = Rational{rat_dword};
-    m_chopNumbers[2] = Rational{rat_word};
-    m_chopNumbers[3] = Rational{rat_byte};
+    m_chopNumbers[0] = Rational{ rat_qword };
+    m_chopNumbers[1] = Rational{ rat_dword };
+    m_chopNumbers[2] = Rational{ rat_word };
+    m_chopNumbers[3] = Rational{ rat_byte };
 
     // initialize the max dec number you can support for each of the supported bit lengths
     // this is basically max num in that width / 2 in integer
@@ -95,8 +128,18 @@ void CCalcEngine::InitChopNumbers()
         auto maxVal = m_chopNumbers[i] / 2;
         maxVal = RationalMath::Integer(maxVal);
 
-        m_maxDecimalValueStrings[i] = maxVal.ToString(10, FMT_FLOAT, m_precision);
+        m_maxDecimalValueStrings[i] = maxVal.ToString(10, NumberFormat::Float, m_precision);
     }
+}
+
+CalcEngine::Rational CCalcEngine::GetChopNumber() const
+{
+    return m_chopNumbers[static_cast<int>(m_numwidth)];
+}
+
+std::wstring CCalcEngine::GetMaxDecimalValueString() const
+{
+    return m_maxDecimalValueStrings[static_cast<int>(m_numwidth)];
 }
 
 // Gets the number in memory for UI to keep it persisted and set it again to a different instance
@@ -106,7 +149,7 @@ unique_ptr<Rational> CCalcEngine::PersistedMemObject()
     return move(m_memoryValue);
 }
 
-void CCalcEngine::PersistedMemObject(Rational const &memObject)
+void CCalcEngine::PersistedMemObject(Rational const& memObject)
 {
     m_memoryValue = make_unique<Rational>(memObject);
 }
@@ -158,4 +201,14 @@ void CCalcEngine::SettingsChanged()
 wchar_t CCalcEngine::DecimalSeparator() const
 {
     return m_decimalSeparator;
+}
+
+std::vector<std::shared_ptr<IExpressionCommand>> CCalcEngine::GetHistoryCollectorCommandsSnapshot() const
+{
+    auto commands = m_HistoryCollector.GetCommands();
+    if (!m_HistoryCollector.FOpndAddedToHistory() && m_bRecord)
+    {
+        commands.push_back(m_HistoryCollector.GetOperandCommandsFromString(m_numberString, m_currentVal));
+    }
+    return commands;
 }

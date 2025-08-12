@@ -4,7 +4,6 @@
 #pragma once
 
 #include "../ExpressionCommandInterface.h"
-#include "pch.h"
 
 // Callback interface to be implemented by the clients of CCalcEngine if they require equation history
 class IHistoryDisplay

@@ -1,6 +1,9 @@
 #include "CalcDisplay.h"
 #include "iostream"
 #include <emscripten.h>
+#include <codecvt>
+#include <locale>
+#include <regex> 
 
 extern "C" {
 
@@ -21,6 +24,13 @@ EM_JS(void, upMem, (char* mem, int idx), {
 })
 
 
+}
+
+// Helper function to fix sqrt symbol not showing in calculator
+std::string wstring_to_utf8(const std::wstring& str)
+{
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
+    return myconv.to_bytes(str);
 }
 
 CalcDisplay::CalcDisplay() {
@@ -53,9 +63,12 @@ void CalcDisplay::SetExpressionDisplay(
     auto currentTokenString = currentToken.first;
     exDisplay += currentTokenString;
   }
-  char* str = new char[255];
-  sprintf(str, "%ls", exDisplay.c_str());
+  
+  std::string utf8String = wstring_to_utf8(exDisplay);
+  char* str = new char[utf8String.length() + 1];
+  strcpy(str, utf8String.c_str());
   setEx(str);
+  delete[] str;
 }
 void CalcDisplay::SetParenthesisNumber(_In_ unsigned int count)
 {
@@ -67,7 +80,7 @@ void CalcDisplay::OnNoRightParenAdded()
 }
 void CalcDisplay::MaxDigitsReached()
 {
-    //do nothong
+    //do nothing
 } // not an error but still need to inform UI layer.
 void CalcDisplay::BinaryOperatorReceived()
 {
@@ -78,12 +91,21 @@ void CalcDisplay::OnHistoryItemAdded(_In_ unsigned int addedItemIndex)
   auto hItemV = m_standardCalculatorManagerPtr->GetHistoryItem(addedItemIndex)->historyItemVector;
   auto expression = hItemV.expression;
   auto result = hItemV.result;
-  expression = expression.substr(1, expression.length() - 2);
-  char* ex = new char[255];
-  char* res = new char[255];
-  sprintf(ex, "%ls", expression.c_str());
-  sprintf(res, "%ls", result.c_str());
+  expression = expression.substr(0, expression.length() - 1);
+
+  expression = std::regex_replace(expression, std::wregex(L"\\( "), L"(");
+  expression = std::regex_replace(expression, std::wregex(L" \\)"), L")");
+  
+  std::string exprUtf8 = wstring_to_utf8(expression);
+  std::string resultUtf8 = wstring_to_utf8(result);
+  
+  char* ex = new char[exprUtf8.length() + 1];
+  char* res = new char[resultUtf8.length() + 1];
+  strcpy(ex, exprUtf8.c_str());
+  strcpy(res, resultUtf8.c_str());
   setHs(ex, res);
+  delete[] ex;
+  delete[] res;
 }
 void CalcDisplay::SetMemorizedNumbers(const std::vector<std::wstring> &memorizedNumbers)
 {
